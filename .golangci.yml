@@ -1,0 +1,49 @@
+# Copyright Kirto LLC 2026
+# SPDX-License-Identifier: Apache-2.0
+
+# golangci-lint configuration, the set kirto.dev/platform and the
+# products run, so the wire a client imports is held to the standard of
+# the server that serves it.
+
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - gocritic
+    - gosec
+
+  settings:
+    govet:
+      enable:
+        - nilness
+
+    gosec:
+      excludes:
+        # Unhandled errors. errcheck owns this; two linters reporting the
+        # same line disagree about which ones matter.
+        - G104
+        # Outbound requests with a variable URL. The client sends to the
+        # base URL its caller names, which is the feature.
+        - G107
+        - G704
+
+  exclusions:
+    generated: lax
+
+    presets:
+      - std-error-handling
+      - common-false-positives
+
+    rules:
+      # A test's inputs are the test's own, and the SARIF this linter
+      # publishes describes the code that ships.
+      - path: _test\.go
+        linters:
+          - gosec
+
+      # Unchecked Close in tests, where a leaked descriptor fails the
+      # test anyway. Left on for non-test code.
+      - path: _test\.go
+        linters:
+          - errcheck
