@@ -19,6 +19,14 @@
 //		...
 //	}
 //
+// A route that is not collection CRUD, a verb or a singleton, goes
+// through [Client.Do], over the same HTTP client and header hook:
+//
+//	var me Me
+//	_, err := c.Do(ctx, http.MethodGet, "me", nil, &me)
+//	ans, err := c.Do(ctx, http.MethodPost, "models/a/activate", in, &out, client.WithPrecondition(pre))
+//	rev, err := ans.Revision()
+//
 // Every refusal is an *httpwire.Error that unwraps to the typed error
 // of package resource its code names, so errors.Is(err,
 // resource.ErrConflict) holds for a stale write. The client never
@@ -92,31 +100,39 @@ const MaxBodyBytes = 64 << 20
 
 // do sends one request and returns the answer of a status below 300,
 // whose body the caller closes. Any other answer is its
-// [httpwire.ReadError].
+// [httpwire.ReadError], with the answer itself so a caller can read its
+// status and headers; its body is closed.
 func (c *Client) do(ctx context.Context, method, u string, in any, set func(http.Header)) (*http.Response, error) {
 	var body io.Reader
-	if in != nil {
+	contentType := ""
+	switch v := in.(type) {
+	case nil:
+	case Raw:
+		body, contentType = bytes.NewReader(v.Data), v.ContentType
+	case *Raw:
+		body, contentType = bytes.NewReader(v.Data), v.ContentType
+	default:
 		raw, err := json.Marshal(in)
 		if err != nil {
 			return nil, fmt.Errorf("client: encoding the %s body: %w", method, err)
 		}
-		body = bytes.NewReader(raw)
+		body, contentType = bytes.NewReader(raw), "application/json"
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if set != nil {
-		set(req.Header)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if c.header != nil {
 		if err := c.header(ctx, req.Header); err != nil {
 			return nil, err
 		}
+	}
+	if set != nil {
+		set(req.Header)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -124,24 +140,31 @@ func (c *Client) do(ctx context.Context, method, u string, in any, set func(http
 	}
 	if err := httpwire.ReadError(resp); err != nil {
 		resp.Body.Close()
-		return nil, err
+		return resp, err
 	}
 	return resp, nil
 }
 
 // read sends one request and returns its whole answer.
 func (c *Client) read(ctx context.Context, method, u string, in any, set func(http.Header)) ([]byte, error) {
+	_, raw, err := c.readAll(ctx, method, u, in, set)
+	return raw, err
+}
+
+// readAll is read with the answer, which is non-nil whenever the server
+// answered, a refusal included.
+func (c *Client) readAll(ctx context.Context, method, u string, in any, set func(http.Header)) (*http.Response, []byte, error) {
 	resp, err := c.do(ctx, method, u, in, set)
 	if err != nil {
-		return nil, err
+		return resp, nil, err
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyBytes+1))
 	if err != nil {
-		return nil, err
+		return resp, nil, err
 	}
 	if len(raw) > MaxBodyBytes {
-		return nil, fmt.Errorf("client: %s %s answered more than %d bytes", method, u, MaxBodyBytes)
+		return resp, nil, fmt.Errorf("client: %s %s answered more than %d bytes", method, u, MaxBodyBytes)
 	}
-	return raw, nil
+	return resp, raw, nil
 }
