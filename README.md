@@ -33,8 +33,11 @@ read is one definition.
   the base URL, an `*http.Client` and a header hook for the bearer and a
   namespace; `c.Collection[T]("things")` is a `Collection[T]` with plain
   `Get`, `List`, `Watch`, `Put`, `Create` and `Delete` methods, so a
-  caller can fake it behind its own interface. It never follows a
-  redirect.
+  caller can fake it behind its own interface. `c.Do` sends a route
+  that is not collection CRUD and reads its answer whole; `c.Stream`
+  hands back the answer's body open, for a download or a stream, and a
+  `RawReader` body is sent as it is read, for an upload. Every request
+  is one `Stream` underneath. It never follows a redirect.
 
 The split follows Kubernetes' apimachinery: types and errors in one
 package that both sides import, the transport contract beside it, and

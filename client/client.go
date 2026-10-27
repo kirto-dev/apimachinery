@@ -27,6 +27,11 @@
 //	ans, err := c.Do(ctx, http.MethodPost, "models/a/activate", in, &out, client.WithPrecondition(pre))
 //	rev, err := ans.Revision()
 //
+// An answer read as it arrives, a download or a stream, goes through
+// [Client.Stream], which hands back the open body; a body sent as it is
+// read, an upload, is a [RawReader]. Every request is one [Client.Stream]
+// underneath: Do reads its answer whole, and a watch decodes it by line.
+//
 // Every refusal is an *httpwire.Error that unwraps to the typed error
 // of package resource its code names, so errors.Is(err,
 // resource.ErrConflict) holds for a stale write. The client never
@@ -34,16 +39,11 @@
 package client
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
-
-	"kirto.dev/apimachinery/httpwire"
 )
 
 // Options configures a [Client].
@@ -91,80 +91,9 @@ func New(baseURL string, o Options) (*Client, error) {
 // T. T is the object as the route answers it, its metadata block
 // included or not: the client reads the metadata itself.
 func (c *Client) Collection[T any](kind string) Collection[T] {
-	return Collection[T]{c: c, path: c.base + "/" + strings.Trim(kind, "/")}
+	return Collection[T]{c: c, path: strings.Trim(kind, "/")}
 }
 
 // MaxBodyBytes bounds an answer the client reads whole: an object or a
 // list.
 const MaxBodyBytes = 64 << 20
-
-// do sends one request and returns the answer of a status below 300,
-// whose body the caller closes. Any other answer is its
-// [httpwire.ReadError], with the answer itself so a caller can read its
-// status and headers; its body is closed.
-func (c *Client) do(ctx context.Context, method, u string, in any, set func(http.Header)) (*http.Response, error) {
-	var body io.Reader
-	contentType := ""
-	switch v := in.(type) {
-	case nil:
-	case Raw:
-		body, contentType = bytes.NewReader(v.Data), v.ContentType
-	case *Raw:
-		body, contentType = bytes.NewReader(v.Data), v.ContentType
-	default:
-		raw, err := json.Marshal(in)
-		if err != nil {
-			return nil, fmt.Errorf("client: encoding the %s body: %w", method, err)
-		}
-		body, contentType = bytes.NewReader(raw), "application/json"
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	if c.header != nil {
-		if err := c.header(ctx, req.Header); err != nil {
-			return nil, err
-		}
-	}
-	if set != nil {
-		set(req.Header)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if err := httpwire.ReadError(resp); err != nil {
-		resp.Body.Close()
-		return resp, err
-	}
-	return resp, nil
-}
-
-// read sends one request and returns its whole answer.
-func (c *Client) read(ctx context.Context, method, u string, in any, set func(http.Header)) ([]byte, error) {
-	_, raw, err := c.readAll(ctx, method, u, in, set)
-	return raw, err
-}
-
-// readAll is read with the answer, which is non-nil whenever the server
-// answered, a refusal included.
-func (c *Client) readAll(ctx context.Context, method, u string, in any, set func(http.Header)) (*http.Response, []byte, error) {
-	resp, err := c.do(ctx, method, u, in, set)
-	if err != nil {
-		return resp, nil, err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyBytes+1))
-	if err != nil {
-		return resp, nil, err
-	}
-	if len(raw) > MaxBodyBytes {
-		return resp, nil, fmt.Errorf("client: %s %s answered more than %d bytes", method, u, MaxBodyBytes)
-	}
-	return resp, raw, nil
-}

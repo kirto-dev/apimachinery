@@ -8,8 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"strings"
 
 	"kirto.dev/apimachinery/httpwire"
 	"kirto.dev/apimachinery/resource"
@@ -24,7 +24,8 @@ type Raw struct {
 	Data        []byte
 }
 
-// Response is what an answer to [Client.Do] carries beside its body.
+// Response is what an answer to [Client.Do] or [Client.Stream] carries
+// beside its body.
 type Response struct {
 	// StatusCode is the HTTP status; 0 when no answer arrived.
 	StatusCode int
@@ -47,7 +48,7 @@ func (r Response) Revision() (uint64, error) {
 	return pre.Revision, nil
 }
 
-// CallOption shapes one [Client.Do] request.
+// CallOption shapes one [Client.Do] or [Client.Stream] request.
 type CallOption func(*call)
 
 type call struct {
@@ -79,48 +80,40 @@ func WithHeader(key, value string) CallOption {
 // whose body is not the object it answers. path is below the base URL,
 // its segments already escaped, and may carry a query.
 //
-// in is sent as JSON, or as it is when it is a [Raw]; nil sends no body.
-// A JSON answer is decoded into out; a *Raw out takes the body as it is,
-// and nil discards it. Do uses the client's HTTP client, its header hook
-// and its redirect policy, so a redirect is an error, never a hop. A
-// refusal is an *httpwire.Error that unwraps to the typed error of
-// package resource its code names, and the Response beside it still
-// carries the status and headers of the answer.
+// in is sent as JSON, or as it is when it is a [Raw] or a [RawReader];
+// nil sends no body. A JSON answer is decoded into out; a *Raw out takes
+// the body as it is, and nil discards it. The answer is read whole, at
+// most [MaxBodyBytes] of it; one to read as it arrives goes through
+// [Client.Stream], which Do is with the body read and closed. Do uses
+// the client's HTTP client, its header hook and its redirect policy, so
+// a redirect is an error, never a hop. A refusal is an *httpwire.Error
+// that unwraps to the typed error of package resource its code names,
+// and the Response beside it still carries the status and headers of
+// the answer.
 func (c *Client) Do(ctx context.Context, method, path string, in, out any, opts ...CallOption) (Response, error) {
-	var o call
-	for _, opt := range opts {
-		opt(&o)
-	}
-	if o.pre != nil && o.pre.StoreRevision != 0 {
-		return Response{}, &resource.InvalidError{Reason: "a store revision fence has no HTTP header; send the object's revision alone"}
-	}
-	set := func(h http.Header) {
-		if o.pre != nil {
-			httpwire.SetPrecondition(h, *o.pre)
-		}
-		for k, v := range o.header {
-			h[k] = v
-		}
-	}
-	resp, raw, err := c.readAll(ctx, method, c.base+"/"+strings.TrimLeft(path, "/"), in, set)
-	var r Response
-	if resp != nil {
-		r = Response{StatusCode: resp.StatusCode, Header: resp.Header}
-	}
+	s, err := c.Stream(ctx, method, path, in, opts...)
 	if err != nil {
-		return r, err
+		return s.Response, err
+	}
+	defer s.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(s.Body, MaxBodyBytes+1))
+	if err != nil {
+		return s.Response, err
+	}
+	if len(raw) > MaxBodyBytes {
+		return s.Response, fmt.Errorf("client: %s %s answered more than %d bytes", method, path, MaxBodyBytes)
 	}
 	switch out := out.(type) {
 	case nil:
 	case *Raw:
-		out.ContentType, out.Data = resp.Header.Get("Content-Type"), raw
+		out.ContentType, out.Data = s.Header.Get("Content-Type"), raw
 	default:
 		if len(bytes.TrimSpace(raw)) == 0 {
 			break
 		}
 		if err := json.Unmarshal(raw, out); err != nil {
-			return r, fmt.Errorf("client: %s %s: decoding the answer: %w", method, path, err)
+			return s.Response, fmt.Errorf("client: %s %s: decoding the answer: %w", method, path, err)
 		}
 	}
-	return r, nil
+	return s.Response, nil
 }

@@ -72,11 +72,11 @@ func (c Collection[T]) Get(ctx context.Context, name string) (resource.Item[T], 
 	if err != nil {
 		return resource.Item[T]{}, err
 	}
-	raw, err := cl.read(ctx, http.MethodGet, c.member(name), nil, nil)
-	if err != nil {
+	var raw Raw
+	if _, err := cl.Do(ctx, http.MethodGet, c.member(name), nil, &raw); err != nil {
 		return resource.Item[T]{}, err
 	}
-	return decodeItem[T](raw)
+	return decodeItem[T](raw.Data)
 }
 
 // List reads one page of the collection.
@@ -96,8 +96,8 @@ func (c Collection[T]) List(ctx context.Context, o ListOptions) (List[T], error)
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
-	raw, err := cl.read(ctx, http.MethodGet, u, nil, nil)
-	if err != nil {
+	var raw Raw
+	if _, err := cl.Do(ctx, http.MethodGet, u, nil, &raw); err != nil {
 		return List[T]{}, err
 	}
 	var l struct {
@@ -107,7 +107,7 @@ func (c Collection[T]) List(ctx context.Context, o ListOptions) (List[T], error)
 		} `json:"metadata"`
 		Items []json.RawMessage `json:"items"`
 	}
-	if err := json.Unmarshal(raw, &l); err != nil {
+	if err := json.Unmarshal(raw.Data, &l); err != nil {
 		return List[T]{}, fmt.Errorf("client: decoding the list of %s: %w", c.path, err)
 	}
 	out := List[T]{Items: make([]resource.Item[T], 0, len(l.Items)), ResourceVersion: l.Metadata.ResourceVersion, Continue: l.Metadata.Continue}
@@ -132,14 +132,11 @@ func (c Collection[T]) Put(ctx context.Context, name string, v T, pre resource.P
 	if err != nil {
 		return resource.Item[T]{}, err
 	}
-	if pre.StoreRevision != 0 {
-		return resource.Item[T]{}, &resource.InvalidError{Reason: "a store revision fence has no HTTP header; send the object's revision alone"}
-	}
-	raw, err := cl.read(ctx, http.MethodPut, c.member(name), v, func(h http.Header) { httpwire.SetPrecondition(h, pre) })
-	if err != nil {
+	var raw Raw
+	if _, err := cl.Do(ctx, http.MethodPut, c.member(name), v, &raw, WithPrecondition(pre)); err != nil {
 		return resource.Item[T]{}, err
 	}
-	return decodeItem[T](raw)
+	return decodeItem[T](raw.Data)
 }
 
 // Create writes v as the object name, which must not exist yet: [Put]
@@ -159,12 +156,11 @@ func (c Collection[T]) Delete(ctx context.Context, name string, pre resource.Pre
 	if pre.StoreRevision != 0 {
 		return &resource.InvalidError{Reason: "a store revision fence has no HTTP header; send the object's revision alone"}
 	}
-	set := func(h http.Header) {
-		if pre.Revision != 0 {
-			httpwire.SetPrecondition(h, pre)
-		}
+	var opts []CallOption
+	if pre.Revision != 0 {
+		opts = append(opts, WithPrecondition(pre))
 	}
-	_, err = cl.read(ctx, http.MethodDelete, c.member(name), nil, set)
+	_, err = cl.Do(ctx, http.MethodDelete, c.member(name), nil, nil, opts...)
 	return err
 }
 
@@ -193,13 +189,13 @@ func (c Collection[T]) Watch(ctx context.Context, o WatchOptions) iter.Seq2[reso
 		}
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		resp, err := cl.do(ctx, http.MethodGet, c.path+"?"+q.Encode(), nil, nil)
+		s, err := cl.Stream(ctx, http.MethodGet, c.path+"?"+q.Encode(), nil)
 		if err != nil {
 			yield(resource.Projected[T]{}, err)
 			return
 		}
-		defer resp.Body.Close()
-		for ev, err := range httpwire.DecodeWatch(resp.Body) {
+		defer s.Body.Close()
+		for ev, err := range httpwire.DecodeWatch(s.Body) {
 			if err != nil {
 				if ctx.Err() == nil {
 					yield(resource.Projected[T]{}, err)
