@@ -46,12 +46,16 @@ type Principal struct {
 	// Issuer names who vouched for the caller: the configured name of an
 	// OIDC issuer, a SPIFFE trust domain, "unix" for a local peer, or the
 	// product's own name for a key it minted. Empty for kinds that have
-	// no voucher (anonymous, insecure, system).
+	// no voucher (anonymous, insecure, system). It never contains a "/",
+	// so the first "/" of a [Principal.User] ends it.
 	Issuer string `json:"issuer,omitempty"`
-	// ID is the stable subject, unique within Issuer. It is often
-	// unreadable (a directory's opaque id, a uid, a SPIFFE path) and it
-	// is what a policy names. Never an email or a display name: those
-	// are mutable and often set by the caller.
+	// ID is the stable subject, unique only within Issuer: two issuers
+	// may both assign "admin" to different callers. So it is never keyed
+	// or decided on alone; a key, a match or a policy that names a caller
+	// reads [Principal.User] or [Principal.Qualified]. It is often
+	// unreadable (a directory's opaque id, a uid, a SPIFFE path). Never
+	// an email or a display name: those are mutable and often set by the
+	// caller.
 	ID string `json:"id,omitempty"`
 	// Name is what a person reading a trail recognizes. It is printed,
 	// never decided on.
@@ -107,6 +111,40 @@ func (p Principal) Qualified() string {
 	return string(p.Kind)
 }
 
+// User is the caller as a person writes it: "<issuer>/<id>", or the id
+// alone for a kind with no issuer, such as system. It is how a product
+// keys on a caller and how a model, a policy or a node file names one,
+// and [ParseUser] reads it back. The id is written as it is, slashes
+// and all, since an issuer contains no "/".
+//
+// It drops the kind, so it tells callers apart only where every issuer
+// name in a deployment belongs to one mechanism, which is the rule the
+// issuer name already follows. [Principal.Qualified] keeps the kind, for
+// a trail.
+func (p Principal) User() string {
+	if p.Issuer == "" {
+		return p.ID
+	}
+	return p.Issuer + "/" + p.ID
+}
+
+// ParseUser reads a user written "<issuer>/<id>": the issuer up to the
+// first "/", the id after it. It refuses a bare id, an empty issuer and
+// an empty id, since a subject named without its issuer matches a
+// caller at every issuer that assigns it, or none.
+func ParseUser(s string) (issuer, id string, err error) {
+	issuer, id, ok := strings.Cut(s, "/")
+	switch {
+	case !ok:
+		return "", "", fmt.Errorf("identity: user %q names no issuer; write it <issuer>/<id>", s)
+	case issuer == "":
+		return "", "", fmt.Errorf("identity: user %q has an empty issuer; write it <issuer>/<id>", s)
+	case id == "":
+		return "", "", fmt.Errorf("identity: user %q has an empty id; write it <issuer>/<id>", s)
+	}
+	return issuer, id, nil
+}
+
 var qualifiedEscaper = strings.NewReplacer("%", "%25", "/", "%2F")
 
 func escapeQualified(s string) string { return qualifiedEscaper.Replace(s) }
@@ -130,15 +168,19 @@ func (p Principal) InGroup(group string) bool { return slices.Contains(p.Groups,
 func (p Principal) Claim(name string) string { return p.Claims[name] }
 
 // Validate reports a Principal no authenticator would build: an unknown
-// kind, an identified kind with no subject, or a SPIFFE field outside
-// the SPIFFE ID grammar. A server calls it on a Principal it decoded
-// from somewhere it did not mint, such as a workflow input.
+// kind, an issuer with a "/", an identified kind with no subject, or a
+// SPIFFE field outside the SPIFFE ID grammar. A server calls it on a
+// Principal it decoded from somewhere it did not mint, such as a
+// workflow input.
 func (p Principal) Validate() error {
 	if p.Kind == "" && p.IsAnonymous() {
 		return nil
 	}
 	if !p.Kind.Valid() {
 		return fmt.Errorf("identity: unknown principal kind %q", p.Kind)
+	}
+	if strings.Contains(p.Issuer, "/") {
+		return fmt.Errorf("identity: issuer %q contains a \"/\", which would end it early in the principal's user form", p.Issuer)
 	}
 	switch p.Kind {
 	case PrincipalHuman, PrincipalWorkload, PrincipalNode, PrincipalKey, PrincipalLocal:

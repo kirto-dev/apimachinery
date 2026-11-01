@@ -120,6 +120,7 @@ func TestValidate(t *testing.T) {
 		ok   bool
 	}{
 		{"human", Principal{Kind: PrincipalHuman, Issuer: "corp", ID: "u1"}, true},
+		{"issuer with a slash", Principal{Kind: PrincipalHuman, Issuer: "corp/eu", ID: "u1"}, false},
 		{"system without a name", Principal{Kind: PrincipalSystem}, true},
 		{"insecure", Principal{Kind: PrincipalInsecure, Name: "dev"}, true},
 		{"unknown kind", Principal{Kind: "oidc", ID: "u1"}, false},
@@ -172,5 +173,41 @@ func TestCloneSharesNothing(t *testing.T) {
 	c.Claims["k"] = "w"
 	if p.Roles[0] != "a" || p.Claims["k"] != "v" {
 		t.Error("Clone shares storage with the original")
+	}
+}
+
+// The user form pairs the issuer with the id, so one subject at two
+// issuers is two users, and it reads back to the same pair.
+func TestUserSeparatesOneSubjectAtTwoIssuers(t *testing.T) {
+	cases := []struct {
+		p    Principal
+		want string
+	}{
+		{Principal{Kind: PrincipalHuman, Issuer: "corp", ID: "admin"}, "corp/admin"},
+		{Principal{Kind: PrincipalHuman, Issuer: "github", ID: "admin"}, "github/admin"},
+		{Principal{Kind: PrincipalWorkload, Issuer: "prod.example", ID: "ns/a/sa/b"}, "prod.example/ns/a/sa/b"},
+		{Principal{Kind: PrincipalSystem, ID: "timer", Name: "timer"}, "timer"},
+	}
+	for _, tc := range cases {
+		if got := tc.p.User(); got != tc.want {
+			t.Errorf("%+v.User() = %q, want %q", tc.p, got, tc.want)
+		}
+		if tc.p.Issuer == "" {
+			continue
+		}
+		iss, id, err := ParseUser(tc.want)
+		if err != nil || iss != tc.p.Issuer || id != tc.p.ID {
+			t.Errorf("ParseUser(%q) = %q, %q, %v; want %q, %q", tc.want, iss, id, err, tc.p.Issuer, tc.p.ID)
+		}
+	}
+}
+
+// A user written without its issuer matches a subject at any issuer,
+// so the parser refuses it rather than guess one.
+func TestParseUserRefusesABareSubject(t *testing.T) {
+	for _, s := range []string{"admin", "", "/admin", "corp/"} {
+		if iss, id, err := ParseUser(s); err == nil {
+			t.Errorf("ParseUser(%q) = %q, %q, nil; want an error", s, iss, id)
+		}
 	}
 }
