@@ -6,7 +6,7 @@ a typed client for them. It holds no server, no store and no product
 vocabulary, and it imports nothing outside the standard library, so a
 client, an SDK or an operator can depend on it alone.
 
-The servers live in `kirto.dev/platform`, whose resource store, routes
+The servers live in `go.kirto.dev/platform`, whose resource store, routes
 and conformance suites are written against these types, so a client's
 `errors.Is` matches the refusal the server meant and the JSON both sides
 read is one definition.

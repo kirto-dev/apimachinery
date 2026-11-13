@@ -1,7 +1,7 @@
 # Copyright Kirto LLC 2026
 # SPDX-License-Identifier: Apache-2.0
 
-# golangci-lint configuration, the set kirto.dev/platform and the
+# golangci-lint configuration, the set go.kirto.dev/platform and the
 # products run, so the wire a client imports is held to the standard of
 # the server that serves it.
 
