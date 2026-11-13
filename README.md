@@ -1,4 +1,4 @@
-# kirto.dev/apimachinery
+# go.kirto.dev/apimachinery
 
 The client side of the Kirto resource model: the wire types, typed
 errors and HTTP contract that a Kirto server's resource routes serve, and

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"kirto.dev/apimachinery/client"
-	"kirto.dev/apimachinery/httpwire"
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/client"
+	"go.kirto.dev/apimachinery/httpwire"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 type thing struct {

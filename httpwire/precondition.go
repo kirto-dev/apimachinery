@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 // ParsePrecondition reads a write's conditional headers:

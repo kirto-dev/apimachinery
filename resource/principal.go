@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"kirto.dev/apimachinery/spiffeid"
+	"go.kirto.dev/apimachinery/spiffeid"
 )
 
 // Principal is one authenticated caller: who it is and what an issuer

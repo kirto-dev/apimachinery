@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 func TestHTTPStatusTable(t *testing.T) {

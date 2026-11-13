@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"strings"
 
-	"kirto.dev/apimachinery/httpwire"
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/httpwire"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 // RawReader is a body sent as it is read rather than held whole: an

@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 func TestParsePrecondition(t *testing.T) {

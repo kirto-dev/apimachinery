@@ -11,8 +11,8 @@ import (
 	"io"
 	"net/http"
 
-	"kirto.dev/apimachinery/httpwire"
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/httpwire"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 // Raw is a body sent or read as its bytes rather than as JSON: a

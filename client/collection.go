@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"kirto.dev/apimachinery/httpwire"
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/httpwire"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 // Collection is one collection's objects, decoded as T. Its methods are

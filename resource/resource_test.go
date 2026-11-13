@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 func TestCursorRoundTrip(t *testing.T) {

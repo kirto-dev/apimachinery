@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"kirto.dev/apimachinery/resource"
+	"go.kirto.dev/apimachinery/resource"
 )
 
 // Status is every error body: [resource.Status], whose JSON it keeps

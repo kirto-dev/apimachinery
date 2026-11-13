@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package spiffeid is the SPIFFE ID grammar: what
-// [kirto.dev/apimachinery/resource.Principal.Validate] holds a
+// [go.kirto.dev/apimachinery/resource.Principal.Validate] holds a
 // principal's SPIFFE field to, and what a server reading an mTLS peer's
 // certificate or a JWT-SVID's subject parses with, so the two never
 // disagree about which IDs exist.
